@@ -4,6 +4,7 @@ from datetime import timedelta
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
+import jwt
 
 from app.core.auth import (
     create_access_token,
@@ -93,23 +94,45 @@ async def verify_email(token: str, db: Session = Depends(get_db)):
         if email is None:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid verification token",
+                detail="Invalid verification token: missing email",
             )
-    except JWTError:
+            
+        # Find user by email
+        user = db.query(User).filter(User.email == email).first()
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found",
+            )
+            
+        # Check if already verified
+        if user.is_verified:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Email already verified",
+            )
+            
+        # Update user verification status
+        user.is_verified = True
+        db.commit()
+        
+        return {"message": "Email verified successfully"}
+        
+    except jwt.ExpiredSignatureError:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid verification token"
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Verification token has expired",
         )
-
-    user = db.query(User).filter(User.email == email).first()
-    if not user:
+    except jwt.JWTError as e:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid verification token: {str(e)}",
         )
-
-    user.is_verified = True
-    db.commit()
-
-    return {"message": "Email verified successfully"}
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"An error occurred during email verification: {str(e)}",
+        )
 
 
 @router.post("/avatar", response_model=UserResponse)
