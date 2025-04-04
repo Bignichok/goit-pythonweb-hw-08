@@ -1,4 +1,5 @@
-from sqlalchemy import Column, Date, Integer, String, Text
+from sqlalchemy import Column, Date, ForeignKey, Integer, String, Text
+from sqlalchemy.orm import relationship
 
 from app.core.database import Base
 
@@ -13,3 +14,7 @@ class Contact(Base):
     phone = Column(String(20), nullable=False)
     birthday = Column(Date, nullable=False)
     additional_data = Column(Text, nullable=True)
+
+    # Add user relationship
+    owner_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    owner = relationship("User", back_populates="contacts")
