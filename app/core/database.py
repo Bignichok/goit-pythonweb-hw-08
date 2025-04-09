@@ -1,29 +1,14 @@
-from sqlalchemy import MetaData, create_engine, inspect
-from sqlalchemy.orm import declarative_base, sessionmaker
-
+from sqlalchemy import create_engine, MetaData
+from sqlalchemy.orm import sessionmaker, declarative_base
 from app.core.config import settings
 
-engine = create_engine(settings.DATABASE_URL)
+SQLALCHEMY_DATABASE_URL = settings.DATABASE_URL
+
+engine = create_engine(SQLALCHEMY_DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-# Create a new metadata object
+Base = declarative_base()
 metadata = MetaData()
-
-# Create the declarative base
-Base = declarative_base(metadata=metadata)
-
-
-def init_db():
-    # Get database inspector
-    inspector = inspect(engine)
-
-    # Drop all existing tables
-    for table_name in inspector.get_table_names():
-        metadata.drop_all(bind=engine, tables=[metadata.tables[table_name]])
-
-    # Create all tables
-    metadata.create_all(bind=engine)
-
 
 def get_db():
     db = SessionLocal()
@@ -31,3 +16,18 @@ def get_db():
         yield db
     finally:
         db.close()
+
+def init_db():
+    # Import models to ensure they are registered with Base.metadata
+    from app.models.user import User
+    from app.models.contact import Contact
+    
+    # Drop tables in reverse order of dependencies
+    metadata.reflect(bind=engine)
+    if 'contacts' in metadata.tables:
+        metadata.tables['contacts'].drop(engine)
+    if 'users' in metadata.tables:
+        metadata.tables['users'].drop(engine)
+    
+    # Create all tables
+    Base.metadata.create_all(bind=engine)
