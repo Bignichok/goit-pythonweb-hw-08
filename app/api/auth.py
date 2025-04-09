@@ -1,3 +1,9 @@
+"""Authentication and user management endpoints.
+
+This module provides endpoints for user registration, login, email verification,
+and avatar management.
+"""
+
 import logging
 from datetime import timedelta
 
@@ -27,6 +33,18 @@ router = APIRouter()
     "/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED
 )
 async def register(user_data: UserCreate, db: Session = Depends(get_db)):
+    """Register a new user.
+    
+    Args:
+        user_data (UserCreate): User registration data including email and password.
+        db (Session): Database session.
+        
+    Returns:
+        UserResponse: Created user data.
+        
+    Raises:
+        HTTPException: If email is already registered.
+    """
     # Check if user already exists
     db_user = db.query(User).filter(User.email == user_data.email).first()
     if db_user:
@@ -63,6 +81,18 @@ async def register(user_data: UserCreate, db: Session = Depends(get_db)):
 async def login(
     form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)
 ):
+    """Authenticate user and return access tokens.
+    
+    Args:
+        form_data (OAuth2PasswordRequestForm): Login credentials.
+        db (Session): Database session.
+        
+    Returns:
+        Token: Access and refresh tokens.
+        
+    Raises:
+        HTTPException: If credentials are invalid.
+    """
     user = db.query(User).filter(User.email == form_data.username).first()
     if not user or not verify_password(form_data.password, user.hashed_password):
         raise HTTPException(
@@ -86,6 +116,18 @@ async def login(
 
 @router.get("/verify-email/{token}")
 async def verify_email(token: str, db: Session = Depends(get_db)):
+    """Verify user's email address using verification token.
+    
+    Args:
+        token (str): Email verification token.
+        db (Session): Database session.
+        
+    Returns:
+        dict: Success message.
+        
+    Raises:
+        HTTPException: If token is invalid, expired, or user not found.
+    """
     try:
         payload = jwt.decode(
             token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM]
@@ -141,6 +183,19 @@ async def update_avatar(
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db),
 ):
+    """Update user's avatar.
+    
+    Args:
+        file (UploadFile): Image file to upload.
+        current_user (User): Authenticated user.
+        db (Session): Database session.
+        
+    Returns:
+        UserResponse: Updated user data with new avatar URL.
+        
+    Raises:
+        HTTPException: If file upload fails.
+    """
     avatar_url = await upload_avatar(file)
     current_user.avatar = avatar_url
     db.commit()
@@ -150,4 +205,12 @@ async def update_avatar(
 
 @router.get("/me", response_model=UserResponse)
 async def read_users_me(current_user: User = Depends(get_current_active_user)):
+    """Get current user's profile.
+    
+    Args:
+        current_user (User): Authenticated user.
+        
+    Returns:
+        UserResponse: Current user's data.
+    """
     return current_user

@@ -1,3 +1,9 @@
+"""Contact management endpoints.
+
+This module provides endpoints for managing contacts, including CRUD operations,
+search, and birthday tracking.
+"""
+
 import logging
 from datetime import date, timedelta
 from typing import List, Optional
@@ -21,6 +27,19 @@ def create_contact(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
+    """Create a new contact.
+    
+    Args:
+        contact (ContactCreate): Contact data to create.
+        db (Session): Database session.
+        current_user (User): Authenticated user.
+        
+    Returns:
+        Contact: Created contact data.
+        
+    Raises:
+        HTTPException: If contact with same email already exists.
+    """
     # Check if contact with same email already exists for this user
     existing_contact = (
         db.query(models.Contact)
@@ -51,6 +70,18 @@ def read_contacts(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
+    """Get list of contacts with optional search and pagination.
+    
+    Args:
+        skip (int): Number of records to skip.
+        limit (int): Maximum number of records to return.
+        search (Optional[str]): Search term for filtering contacts.
+        db (Session): Database session.
+        current_user (User): Authenticated user.
+        
+    Returns:
+        List[Contact]: List of contacts matching the criteria.
+    """
     query = db.query(models.Contact).filter(models.Contact.owner_id == current_user.id)
 
     if search:
@@ -71,6 +102,19 @@ def read_contact(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
+    """Get a specific contact by ID.
+    
+    Args:
+        contact_id (int): ID of the contact to retrieve.
+        db (Session): Database session.
+        current_user (User): Authenticated user.
+        
+    Returns:
+        Contact: Contact data.
+        
+    Raises:
+        HTTPException: If contact is not found.
+    """
     db_contact = (
         db.query(models.Contact)
         .filter(
@@ -90,6 +134,20 @@ def update_contact(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
+    """Update an existing contact.
+    
+    Args:
+        contact_id (int): ID of the contact to update.
+        contact (ContactUpdate): Updated contact data.
+        db (Session): Database session.
+        current_user (User): Authenticated user.
+        
+    Returns:
+        Contact: Updated contact data.
+        
+    Raises:
+        HTTPException: If contact is not found.
+    """
     db_contact = (
         db.query(models.Contact)
         .filter(
@@ -114,6 +172,19 @@ def delete_contact(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
+    """Delete a contact.
+    
+    Args:
+        contact_id (int): ID of the contact to delete.
+        db (Session): Database session.
+        current_user (User): Authenticated user.
+        
+    Returns:
+        dict: Success message.
+        
+    Raises:
+        HTTPException: If contact is not found.
+    """
     db_contact = (
         db.query(models.Contact)
         .filter(
@@ -133,6 +204,15 @@ def delete_contact(
 def get_upcoming_birthdays(
     db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)
 ):
+    """Get contacts with birthdays in the next 7 days.
+    
+    Args:
+        db (Session): Database session.
+        current_user (User): Authenticated user.
+        
+    Returns:
+        List[Contact]: List of contacts with upcoming birthdays.
+    """
     today = date.today()
     next_week = today + timedelta(days=7)
 
