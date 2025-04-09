@@ -13,6 +13,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import get_current_active_user
+from app.core.cache import cache
 from app.core.database import get_db
 from app.models import contact as models
 from app.models.user import User
@@ -57,6 +58,9 @@ async def create_contact(
     db.add(db_contact)
     await db.commit()
     await db.refresh(db_contact)
+    
+    # Clear cache for user's contacts
+    await cache.delete(f"contacts:{current_user.id}")
     return db_contact
 
 
@@ -80,6 +84,14 @@ async def read_contacts(
     Returns:
         List[Contact]: List of contacts matching the criteria.
     """
+    # Generate cache key
+    cache_key = f"contacts:{current_user.id}:{skip}:{limit}:{search}"
+    
+    # Try to get from cache
+    cached_contacts = await cache.get(cache_key)
+    if cached_contacts:
+        return cached_contacts
+
     stmt = select(models.Contact).where(models.Contact.user_id == current_user.id)
 
     if search:
@@ -93,7 +105,11 @@ async def read_contacts(
 
     stmt = stmt.offset(skip).limit(limit)
     result = await db.execute(stmt)
-    return result.scalars().all()
+    contacts = result.scalars().all()
+    
+    # Cache the results
+    await cache.set(cache_key, contacts)
+    return contacts
 
 
 @router.get("/{contact_id}", response_model=schemas.Contact)
@@ -115,6 +131,14 @@ async def read_contact(
     Raises:
         HTTPException: If contact is not found.
     """
+    # Generate cache key
+    cache_key = f"contact:{contact_id}:{current_user.id}"
+    
+    # Try to get from cache
+    cached_contact = await cache.get(cache_key)
+    if cached_contact:
+        return cached_contact
+
     stmt = select(models.Contact).where(
         models.Contact.id == contact_id,
         models.Contact.user_id == current_user.id,
@@ -124,6 +148,9 @@ async def read_contact(
     
     if db_contact is None:
         raise HTTPException(status_code=404, detail="Contact not found")
+    
+    # Cache the result
+    await cache.set(cache_key, db_contact)
     return db_contact
 
 
@@ -163,6 +190,10 @@ async def update_contact(
 
     await db.commit()
     await db.refresh(db_contact)
+    
+    # Clear relevant caches
+    await cache.delete(f"contact:{contact_id}:{current_user.id}")
+    await cache.delete(f"contacts:{current_user.id}")
     return db_contact
 
 
@@ -197,6 +228,10 @@ async def delete_contact(
 
     await db.delete(db_contact)
     await db.commit()
+    
+    # Clear relevant caches
+    await cache.delete(f"contact:{contact_id}:{current_user.id}")
+    await cache.delete(f"contacts:{current_user.id}")
     return {"message": "Contact deleted successfully"}
 
 
@@ -214,6 +249,14 @@ async def get_upcoming_birthdays(
     Returns:
         List[Contact]: List of contacts with upcoming birthdays.
     """
+    # Generate cache key
+    cache_key = f"birthdays:{current_user.id}"
+    
+    # Try to get from cache
+    cached_birthdays = await cache.get(cache_key)
+    if cached_birthdays:
+        return cached_birthdays
+
     today = date.today()
     next_week = today + timedelta(days=7)
 
@@ -232,4 +275,6 @@ async def get_upcoming_birthdays(
         if today <= birthday_this_year <= next_week:
             upcoming_birthdays.append(contact)
 
+    # Cache the results with a shorter expiration time (1 hour)
+    await cache.set(cache_key, upcoming_birthdays, expire=3600)
     return upcoming_birthdays

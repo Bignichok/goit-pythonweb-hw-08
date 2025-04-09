@@ -7,6 +7,7 @@ from fastapi_limiter import FastAPILimiter
 from fastapi_limiter.depends import RateLimiter
 
 from app.api import auth, contacts
+from app.core.cache import cache
 from app.core.config import settings
 from app.core.database import Base, engine, init_db
 
