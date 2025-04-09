@@ -10,7 +10,7 @@ from datetime import timedelta
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
-import jwt
+from jose import JWTError, jwt
 
 from app.core.auth import (
     create_access_token,

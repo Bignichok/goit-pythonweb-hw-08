@@ -17,4 +17,4 @@ class User(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     # Relationship with contacts
-    contacts = relationship("Contact", back_populates="owner")
+    contacts = relationship("Contact", back_populates="user", cascade="all, delete-orphan")

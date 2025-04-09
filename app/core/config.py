@@ -1,4 +1,6 @@
-from pydantic_settings import BaseSettings
+import os
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import EmailStr
 
 
 class Settings(BaseSettings):
@@ -16,10 +18,10 @@ class Settings(BaseSettings):
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
     # Email
-    SMTP_USER: str
+    SMTP_SERVER: str = "smtp.gmail.com"
+    SMTP_PORT: int = 587
+    SMTP_USERNAME: EmailStr
     SMTP_PASSWORD: str
-    SMTP_HOST: str
-    SMTP_PORT: int
 
     # Cloudinary
     CLOUDINARY_CLOUD_NAME: str
@@ -29,11 +31,12 @@ class Settings(BaseSettings):
     # Redis
     REDIS_HOST: str = "localhost"
     REDIS_PORT: int = 6379
-    REDIS_PASSWORD: str
+    REDIS_PASSWORD: str | None = None
 
-    class Config:
-        env_file = ".env"
-        case_sensitive = True
+    model_config = SettingsConfigDict(
+        env_file=".env.test" if os.getenv("TESTING") else ".env",
+        case_sensitive=True
+    )
 
 
 settings = Settings()

@@ -48,10 +48,10 @@ ACCESS_TOKEN_EXPIRE_MINUTES=30  # Default: 30
 REFRESH_TOKEN_EXPIRE_DAYS=7  # Default: 7
 
 # Email Settings (Optional for development)
-SMTP_USER=""  # Can be empty in development
-SMTP_PASSWORD=""  # Can be empty in development
-SMTP_HOST=localhost
-SMTP_PORT=1025
+SMTP_SERVER=smtp.gmail.com  # Default: smtp.gmail.com
+SMTP_PORT=587  # Default: 587
+SMTP_USERNAME=your-email@gmail.com  # Required
+SMTP_PASSWORD=your-app-password  # Required
 
 # Cloudinary (Optional until you need avatar uploads)
 CLOUDINARY_CLOUD_NAME=your-cloud-name
@@ -59,9 +59,9 @@ CLOUDINARY_API_KEY=your-api-key
 CLOUDINARY_API_SECRET=your-api-secret
 
 # Redis (Optional for development)
-REDIS_HOST=localhost
-REDIS_PORT=6379
-REDIS_PASSWORD=""  # Can be empty in development
+REDIS_HOST=localhost  # Default: localhost
+REDIS_PORT=6379  # Default: 6379
+REDIS_PASSWORD=""  # Optional
 ```
 
 4. Initialize the database:
@@ -75,6 +75,50 @@ poetry run uvicorn app.main:app --reload
 ```
 
 The API will be available at `http://localhost:8000`
+
+## Testing
+
+The project includes unit tests and integration tests. To run the tests:
+
+1. Make sure you have all dependencies installed:
+```bash
+poetry install
+```
+
+2. Run all tests:
+```bash
+poetry run pytest
+```
+
+3. Run tests with coverage report:
+```bash
+poetry run pytest --cov=app --cov-report=term-missing
+```
+
+4. Run specific test file:
+```bash
+poetry run pytest tests/unit/test_auth.py
+```
+
+5. Run tests with verbose output:
+```bash
+poetry run pytest -v
+```
+
+6. Run tests and stop on first failure:
+```bash
+poetry run pytest -x
+```
+
+The test suite includes:
+- Authentication tests (JWT, password hashing, user verification)
+- Email service tests (verification and password reset emails)
+- Database operation tests
+- Contact management tests
+- Rate limiting tests
+- Cloudinary integration tests
+
+Note: Tests use a separate test database and mock external services (SMTP, Cloudinary, Redis) to ensure reliable and isolated testing.
 
 ## Authentication
 

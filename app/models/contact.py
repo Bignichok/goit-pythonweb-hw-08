@@ -8,13 +8,13 @@ class Contact(Base):
     __tablename__ = "contacts"
 
     id = Column(Integer, primary_key=True, index=True)
-    first_name = Column(String(50), nullable=False)
-    last_name = Column(String(50), nullable=False)
-    email = Column(String(100), unique=True, nullable=False)
-    phone = Column(String(20), nullable=False)
-    birthday = Column(Date, nullable=False)
+    first_name = Column(String, index=True)
+    last_name = Column(String, index=True)
+    email = Column(String, index=True)
+    phone = Column(String)
+    birthday = Column(Date)
     additional_data = Column(Text, nullable=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"))
 
-    # Add user relationship
-    owner_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    owner = relationship("User", back_populates="contacts")
+    # Define relationship
+    user = relationship("User", back_populates="contacts")
