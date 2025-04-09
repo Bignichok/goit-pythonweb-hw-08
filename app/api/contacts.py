@@ -9,8 +9,8 @@ from datetime import date, timedelta
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import or_
-from sqlalchemy.orm import Session
+from sqlalchemy import or_, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import get_current_active_user
 from app.core.database import get_db
@@ -22,16 +22,16 @@ router = APIRouter()
 
 
 @router.post("/", response_model=schemas.Contact, status_code=201)
-def create_contact(
+async def create_contact(
     contact: schemas.ContactCreate,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
     """Create a new contact.
     
     Args:
         contact (ContactCreate): Contact data to create.
-        db (Session): Database session.
+        db (AsyncSession): Database session.
         current_user (User): Authenticated user.
         
     Returns:
@@ -41,33 +41,31 @@ def create_contact(
         HTTPException: If contact with same email already exists.
     """
     # Check if contact with same email already exists for this user
-    existing_contact = (
-        db.query(models.Contact)
-        .filter(
-            models.Contact.email == contact.email,
-            models.Contact.owner_id == current_user.id,
-        )
-        .first()
+    stmt = select(models.Contact).where(
+        models.Contact.email == contact.email,
+        models.Contact.user_id == current_user.id,
     )
+    result = await db.execute(stmt)
+    existing_contact = result.scalar_one_or_none()
 
     if existing_contact:
         raise HTTPException(
             status_code=400, detail="Contact with this email already exists"
         )
 
-    db_contact = models.Contact(**contact.model_dump(), owner_id=current_user.id)
+    db_contact = models.Contact(**contact.model_dump(), user_id=current_user.id)
     db.add(db_contact)
-    db.commit()
-    db.refresh(db_contact)
+    await db.commit()
+    await db.refresh(db_contact)
     return db_contact
 
 
 @router.get("/", response_model=List[schemas.Contact])
-def read_contacts(
+async def read_contacts(
     skip: int = 0,
     limit: int = 100,
     search: Optional[str] = None,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
     """Get list of contacts with optional search and pagination.
@@ -76,16 +74,16 @@ def read_contacts(
         skip (int): Number of records to skip.
         limit (int): Maximum number of records to return.
         search (Optional[str]): Search term for filtering contacts.
-        db (Session): Database session.
+        db (AsyncSession): Database session.
         current_user (User): Authenticated user.
         
     Returns:
         List[Contact]: List of contacts matching the criteria.
     """
-    query = db.query(models.Contact).filter(models.Contact.owner_id == current_user.id)
+    stmt = select(models.Contact).where(models.Contact.user_id == current_user.id)
 
     if search:
-        query = query.filter(
+        stmt = stmt.where(
             or_(
                 models.Contact.first_name.ilike(f"%{search}%"),
                 models.Contact.last_name.ilike(f"%{search}%"),
@@ -93,20 +91,22 @@ def read_contacts(
             )
         )
 
-    return query.offset(skip).limit(limit).all()
+    stmt = stmt.offset(skip).limit(limit)
+    result = await db.execute(stmt)
+    return result.scalars().all()
 
 
 @router.get("/{contact_id}", response_model=schemas.Contact)
-def read_contact(
+async def read_contact(
     contact_id: int,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
     """Get a specific contact by ID.
     
     Args:
         contact_id (int): ID of the contact to retrieve.
-        db (Session): Database session.
+        db (AsyncSession): Database session.
         current_user (User): Authenticated user.
         
     Returns:
@@ -115,23 +115,23 @@ def read_contact(
     Raises:
         HTTPException: If contact is not found.
     """
-    db_contact = (
-        db.query(models.Contact)
-        .filter(
-            models.Contact.id == contact_id, models.Contact.owner_id == current_user.id
-        )
-        .first()
+    stmt = select(models.Contact).where(
+        models.Contact.id == contact_id,
+        models.Contact.user_id == current_user.id,
     )
+    result = await db.execute(stmt)
+    db_contact = result.scalar_one_or_none()
+    
     if db_contact is None:
         raise HTTPException(status_code=404, detail="Contact not found")
     return db_contact
 
 
 @router.put("/{contact_id}", response_model=schemas.Contact)
-def update_contact(
+async def update_contact(
     contact_id: int,
     contact: schemas.ContactUpdate,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
     """Update an existing contact.
@@ -139,7 +139,7 @@ def update_contact(
     Args:
         contact_id (int): ID of the contact to update.
         contact (ContactUpdate): Updated contact data.
-        db (Session): Database session.
+        db (AsyncSession): Database session.
         current_user (User): Authenticated user.
         
     Returns:
@@ -148,35 +148,35 @@ def update_contact(
     Raises:
         HTTPException: If contact is not found.
     """
-    db_contact = (
-        db.query(models.Contact)
-        .filter(
-            models.Contact.id == contact_id, models.Contact.owner_id == current_user.id
-        )
-        .first()
+    stmt = select(models.Contact).where(
+        models.Contact.id == contact_id,
+        models.Contact.user_id == current_user.id,
     )
+    result = await db.execute(stmt)
+    db_contact = result.scalar_one_or_none()
+    
     if db_contact is None:
         raise HTTPException(status_code=404, detail="Contact not found")
 
     for key, value in contact.model_dump(exclude_unset=True).items():
         setattr(db_contact, key, value)
 
-    db.commit()
-    db.refresh(db_contact)
+    await db.commit()
+    await db.refresh(db_contact)
     return db_contact
 
 
 @router.delete("/{contact_id}")
-def delete_contact(
+async def delete_contact(
     contact_id: int,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
     """Delete a contact.
     
     Args:
         contact_id (int): ID of the contact to delete.
-        db (Session): Database session.
+        db (AsyncSession): Database session.
         current_user (User): Authenticated user.
         
     Returns:
@@ -185,29 +185,30 @@ def delete_contact(
     Raises:
         HTTPException: If contact is not found.
     """
-    db_contact = (
-        db.query(models.Contact)
-        .filter(
-            models.Contact.id == contact_id, models.Contact.owner_id == current_user.id
-        )
-        .first()
+    stmt = select(models.Contact).where(
+        models.Contact.id == contact_id,
+        models.Contact.user_id == current_user.id,
     )
+    result = await db.execute(stmt)
+    db_contact = result.scalar_one_or_none()
+    
     if db_contact is None:
         raise HTTPException(status_code=404, detail="Contact not found")
 
-    db.delete(db_contact)
-    db.commit()
+    await db.delete(db_contact)
+    await db.commit()
     return {"message": "Contact deleted successfully"}
 
 
 @router.get("/birthdays/upcoming", response_model=List[schemas.Contact])
-def get_upcoming_birthdays(
-    db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)
+async def get_upcoming_birthdays(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
 ):
     """Get contacts with birthdays in the next 7 days.
     
     Args:
-        db (Session): Database session.
+        db (AsyncSession): Database session.
         current_user (User): Authenticated user.
         
     Returns:
@@ -216,11 +217,10 @@ def get_upcoming_birthdays(
     today = date.today()
     next_week = today + timedelta(days=7)
 
-    contacts = (
-        db.query(models.Contact)
-        .filter(models.Contact.owner_id == current_user.id)
-        .all()
-    )
+    stmt = select(models.Contact).where(models.Contact.user_id == current_user.id)
+    result = await db.execute(stmt)
+    contacts = result.scalars().all()
+    
     upcoming_birthdays = []
 
     for contact in contacts:

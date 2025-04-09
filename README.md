@@ -85,27 +85,32 @@ The project includes unit tests and integration tests. To run the tests:
 poetry install
 ```
 
-2. Run all tests:
+2. Run unit tests:
 ```bash
-poetry run pytest
+poetry run pytest tests/unit
 ```
 
-3. Run tests with coverage report:
+3. Run integration tests:
+```bash
+poetry run pytest tests/integration
+```
+
+4. Run tests with coverage report:
 ```bash
 poetry run pytest --cov=app --cov-report=term-missing
 ```
 
-4. Run specific test file:
+5. Run specific test file:
 ```bash
 poetry run pytest tests/unit/test_auth.py
 ```
 
-5. Run tests with verbose output:
+6. Run tests with verbose output:
 ```bash
 poetry run pytest -v
 ```
 
-6. Run tests and stop on first failure:
+7. Run tests and stop on first failure:
 ```bash
 poetry run pytest -x
 ```

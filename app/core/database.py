@@ -1,33 +1,56 @@
-from sqlalchemy import create_engine, MetaData
-from sqlalchemy.orm import sessionmaker, declarative_base
+"""Database configuration and utilities.
+
+This module provides database configuration, session management, and initialization utilities.
+"""
+
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+from sqlalchemy.orm import declarative_base
 from app.core.config import settings
 
-SQLALCHEMY_DATABASE_URL = settings.DATABASE_URL
+# Create async engine
+SQLALCHEMY_DATABASE_URL = settings.DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://")
+engine = create_async_engine(
+    SQLALCHEMY_DATABASE_URL,
+    echo=False,
+    pool_pre_ping=True,
+    pool_size=5,
+    max_overflow=10,
+)
 
-engine = create_engine(SQLALCHEMY_DATABASE_URL)
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+# Create async session factory
+async_session = async_sessionmaker(
+    engine,
+    class_=AsyncSession,
+    expire_on_commit=False,
+    autocommit=False,
+    autoflush=False,
+)
 
 Base = declarative_base()
-metadata = MetaData()
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
-def init_db():
-    # Import models to ensure they are registered with Base.metadata
-    from app.models.user import User
-    from app.models.contact import Contact
+async def get_db() -> AsyncSession:
+    """Get a database session.
     
-    # Drop tables in reverse order of dependencies
-    metadata.reflect(bind=engine)
-    if 'contacts' in metadata.tables:
-        metadata.tables['contacts'].drop(engine)
-    if 'users' in metadata.tables:
-        metadata.tables['users'].drop(engine)
+    Yields:
+        AsyncSession: Database session.
+    """
+    async with async_session() as session:
+        try:
+            yield session
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
+        finally:
+            await session.close()
+
+
+async def init_db():
+    """Initialize the database.
     
-    # Create all tables
-    Base.metadata.create_all(bind=engine)
+    Drops and recreates all tables.
+    """
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
+        await conn.run_sync(Base.metadata.create_all)

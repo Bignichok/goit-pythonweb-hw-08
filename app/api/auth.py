@@ -9,7 +9,8 @@ from datetime import timedelta
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from fastapi.security import OAuth2PasswordRequestForm
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 from jose import JWTError, jwt
 
 from app.core.auth import (
@@ -18,6 +19,7 @@ from app.core.auth import (
     get_current_active_user,
     get_password_hash,
     verify_password,
+    oauth2_scheme,
 )
 from app.core.cloudinary import upload_avatar
 from app.core.config import settings
@@ -32,12 +34,12 @@ router = APIRouter()
 @router.post(
     "/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED
 )
-async def register(user_data: UserCreate, db: Session = Depends(get_db)):
+async def register(user_data: UserCreate, db: AsyncSession = Depends(get_db)):
     """Register a new user.
     
     Args:
         user_data (UserCreate): User registration data including email and password.
-        db (Session): Database session.
+        db (AsyncSession): Database session.
         
     Returns:
         UserResponse: Created user data.
@@ -46,7 +48,8 @@ async def register(user_data: UserCreate, db: Session = Depends(get_db)):
         HTTPException: If email is already registered.
     """
     # Check if user already exists
-    db_user = db.query(User).filter(User.email == user_data.email).first()
+    result = await db.execute(select(User).where(User.email == user_data.email))
+    db_user = result.scalar_one_or_none()
     if db_user:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail="Email already registered"
@@ -60,8 +63,8 @@ async def register(user_data: UserCreate, db: Session = Depends(get_db)):
         is_verified=True,  # Auto-verify in development
     )
     db.add(db_user)
-    db.commit()
-    db.refresh(db_user)
+    await db.commit()
+    await db.refresh(db_user)
 
     # Try to send verification email, but don't fail if it doesn't work
     try:
@@ -79,13 +82,13 @@ async def register(user_data: UserCreate, db: Session = Depends(get_db)):
 
 @router.post("/login", response_model=Token)
 async def login(
-    form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)
+    form_data: OAuth2PasswordRequestForm = Depends(), db: AsyncSession = Depends(get_db)
 ):
     """Authenticate user and return access tokens.
     
     Args:
         form_data (OAuth2PasswordRequestForm): Login credentials.
-        db (Session): Database session.
+        db (AsyncSession): Database session.
         
     Returns:
         Token: Access and refresh tokens.
@@ -93,7 +96,8 @@ async def login(
     Raises:
         HTTPException: If credentials are invalid.
     """
-    user = db.query(User).filter(User.email == form_data.username).first()
+    result = await db.execute(select(User).where(User.email == form_data.username))
+    user = result.scalar_one_or_none()
     if not user or not verify_password(form_data.password, user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -101,32 +105,24 @@ async def login(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    access_token = create_access_token(
-        data={"sub": user.email},
-        expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
-    )
+    access_token = create_access_token(data={"sub": user.email})
     refresh_token = create_refresh_token(data={"sub": user.email})
-
-    return {
-        "access_token": access_token,
-        "refresh_token": refresh_token,
-        "token_type": "bearer",
-    }
+    return {"access_token": access_token, "refresh_token": refresh_token, "token_type": "bearer"}
 
 
 @router.get("/verify-email/{token}")
-async def verify_email(token: str, db: Session = Depends(get_db)):
-    """Verify user's email address using verification token.
+async def verify_email(token: str, db: AsyncSession = Depends(get_db)):
+    """Verify user email using token.
     
     Args:
-        token (str): Email verification token.
-        db (Session): Database session.
+        token (str): Verification token.
+        db (AsyncSession): Database session.
         
     Returns:
         dict: Success message.
         
     Raises:
-        HTTPException: If token is invalid, expired, or user not found.
+        HTTPException: If token is invalid or expired.
     """
     try:
         payload = jwt.decode(
@@ -136,81 +132,106 @@ async def verify_email(token: str, db: Session = Depends(get_db)):
         if email is None:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid verification token: missing email",
+                detail="Invalid verification token",
             )
-            
-        # Find user by email
-        user = db.query(User).filter(User.email == email).first()
-        if not user:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="User not found",
-            )
-            
-        # Check if already verified
-        if user.is_verified:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Email already verified",
-            )
-            
-        # Update user verification status
-        user.is_verified = True
-        db.commit()
-        
-        return {"message": "Email verified successfully"}
-        
-    except jwt.ExpiredSignatureError:
+    except JWTError:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Verification token has expired",
+            detail="Invalid verification token",
         )
-    except jwt.JWTError as e:
+
+    result = await db.execute(select(User).where(User.email == email))
+    user = result.scalar_one_or_none()
+    if not user:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid verification token: {str(e)}",
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found",
         )
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"An error occurred during email verification: {str(e)}",
-        )
+
+    user.is_verified = True
+    await db.commit()
+    return {"message": "Email verified successfully"}
 
 
 @router.post("/avatar", response_model=UserResponse)
 async def update_avatar(
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_active_user),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
-    """Update user's avatar.
+    """Update user avatar.
     
     Args:
-        file (UploadFile): Image file to upload.
-        current_user (User): Authenticated user.
-        db (Session): Database session.
+        file (UploadFile): Avatar image file.
+        current_user (User): Current authenticated user.
+        db (AsyncSession): Database session.
         
     Returns:
-        UserResponse: Updated user data with new avatar URL.
-        
-    Raises:
-        HTTPException: If file upload fails.
+        UserResponse: Updated user data.
     """
     avatar_url = await upload_avatar(file)
     current_user.avatar = avatar_url
-    db.commit()
-    db.refresh(current_user)
+    await db.commit()
+    await db.refresh(current_user)
     return current_user
 
 
 @router.get("/me", response_model=UserResponse)
 async def read_users_me(current_user: User = Depends(get_current_active_user)):
-    """Get current user's profile.
+    """Get current user information.
     
     Args:
-        current_user (User): Authenticated user.
+        current_user (User): Current authenticated user.
         
     Returns:
-        UserResponse: Current user's data.
+        UserResponse: Current user data.
     """
     return current_user
+
+
+@router.post("/refresh", response_model=Token)
+async def refresh_token(
+    token: str = Depends(oauth2_scheme), db: AsyncSession = Depends(get_db)
+):
+    """Refresh access token using refresh token.
+    
+    Args:
+        token (str): Refresh token.
+        db (AsyncSession): Database session.
+        
+    Returns:
+        Token: New access and refresh tokens.
+        
+    Raises:
+        HTTPException: If token is invalid or expired.
+    """
+    try:
+        payload = jwt.decode(
+            token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM]
+        )
+        email: str = payload.get("sub")
+        if email is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid refresh token",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+    except JWTError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid refresh token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    result = await db.execute(select(User).where(User.email == email))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    access_token = create_access_token(data={"sub": user.email})
+    refresh_token = create_refresh_token(data={"sub": user.email})
+    return {"access_token": access_token, "refresh_token": refresh_token, "token_type": "bearer"}

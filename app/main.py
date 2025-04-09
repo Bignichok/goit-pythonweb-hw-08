@@ -8,10 +8,7 @@ from fastapi_limiter.depends import RateLimiter
 
 from app.api import auth, contacts
 from app.core.config import settings
-from app.core.database import Base, engine
-
-# Create database tables
-Base.metadata.create_all(bind=engine)
+from app.core.database import Base, engine, init_db
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -29,10 +26,11 @@ app.add_middleware(
 )
 
 
-# Initialize rate limiter
+# Initialize rate limiter and database
 @app.on_event("startup")
 async def startup():
     try:
+        # Initialize Redis rate limiter
         r = redis.from_url(
             f"redis://{settings.REDIS_HOST}:{settings.REDIS_PORT}",
             password=settings.REDIS_PASSWORD,
@@ -45,6 +43,10 @@ async def startup():
         logging.warning(f"Failed to initialize Redis rate limiter: {e}")
         # If Redis is not available, we'll skip rate limiting
         app.dependency_overrides[RateLimiter] = lambda: None
+
+    # Initialize database
+    await init_db()
+    logging.info("Database initialized successfully")
 
 
 # Include routers

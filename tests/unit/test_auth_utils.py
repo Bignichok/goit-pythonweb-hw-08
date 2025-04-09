@@ -1,3 +1,8 @@
+"""Unit tests for authentication utilities.
+
+This module contains unit tests for authentication-related utilities and functions.
+"""
+
 import pytest
 from datetime import datetime, timedelta, UTC
 from unittest.mock import MagicMock, patch, AsyncMock
@@ -13,7 +18,7 @@ from app.core.auth import (
     create_access_token,
     create_refresh_token,
     get_current_user,
-    get_current_active_user
+    get_current_active_user,
 )
 from app.models.user import User
 from app.core.config import settings
@@ -37,14 +42,13 @@ def mock_db() -> AsyncSession:
     mock.execute.return_value = MagicMock(scalar_one_or_none=lambda: None)
     return mock
 
-def test_verify_password():
-    """Test password verification functionality."""
-    pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-    plain_password = "test_password"
-    hashed_password = pwd_context.hash(plain_password)
-    
-    assert verify_password(plain_password, hashed_password) is True
-    assert verify_password("wrong_password", hashed_password) is False
+@pytest.mark.asyncio
+async def test_verify_password():
+    """Test password verification."""
+    plain_password = "password123"
+    hashed_password = get_password_hash(plain_password)
+    assert verify_password(plain_password, hashed_password)
+    assert not verify_password("wrongpassword", hashed_password)
 
 def test_get_password_hash():
     """Test password hashing functionality."""
@@ -53,20 +57,19 @@ def test_get_password_hash():
     assert hashed_password != password
     assert len(hashed_password) > 0
 
-def test_create_access_token():
+@pytest.mark.asyncio
+async def test_create_access_token():
     """Test access token creation."""
     data = {"sub": "test@example.com"}
-    expires_delta = timedelta(minutes=30)
-    token = create_access_token(data, expires_delta)
+    expires_delta = timedelta(minutes=15)
+    token = create_access_token(data=data, expires_delta=expires_delta)
     
-    decoded = jwt.decode(
-        token,
-        settings.SECRET_KEY,
-        algorithms=[settings.ALGORITHM]
+    # Verify token
+    payload = jwt.decode(
+        token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM]
     )
-    
-    assert decoded["sub"] == data["sub"]
-    assert "exp" in decoded
+    assert payload["sub"] == data["sub"]
+    assert "exp" in payload
 
 def test_create_refresh_token():
     """Test refresh token creation."""
@@ -93,25 +96,31 @@ async def test_get_current_user_invalid_token(mock_db):
     assert "Could not validate credentials" in str(exc_info.value.detail)
 
 @pytest.mark.asyncio
-async def test_get_current_active_user_active(mock_user):
-    """Test getting current active user with active user."""
-    result = await get_current_active_user(mock_user)
-    assert result == mock_user
+async def test_get_current_active_user():
+    """Test getting current active user."""
+    mock_user = User(
+        email="test@example.com",
+        hashed_password="hashed",
+        is_active=True,
+        is_verified=True,
+        created_at=datetime.now(UTC)
+    )
+    
+    user = await get_current_active_user(mock_user)
+    assert user == mock_user
 
 @pytest.mark.asyncio
 async def test_get_current_active_user_inactive():
-    """Test getting current active user with inactive user."""
-    inactive_user = User(
-        id=1,
+    """Test getting current inactive user."""
+    mock_user = User(
         email="test@example.com",
-        hashed_password="hashed_password",
+        hashed_password="hashed",
         is_active=False,
         is_verified=True,
         created_at=datetime.now(UTC)
     )
     
     with pytest.raises(HTTPException) as exc_info:
-        await get_current_active_user(inactive_user)
-    
+        await get_current_active_user(mock_user)
     assert exc_info.value.status_code == 400
-    assert "Inactive user" in str(exc_info.value.detail) 
+    assert exc_info.value.detail == "Inactive user" 
