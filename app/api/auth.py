@@ -24,9 +24,9 @@ from app.core.auth import (
 from app.core.cloudinary import upload_avatar
 from app.core.config import settings
 from app.core.database import get_db
-from app.core.email import send_verification_email
+from app.core.email import send_verification_email, send_password_reset_email
 from app.models.user import User
-from app.schemas.auth import Token, UserCreate, UserResponse
+from app.schemas.auth import Token, UserCreate, UserResponse, PasswordReset, PasswordResetConfirmResponse, PasswordResetRequest, PasswordResetResponse
 
 router = APIRouter()
 
@@ -235,3 +235,77 @@ async def refresh_token(
     access_token = create_access_token(data={"sub": user.email})
     refresh_token = create_refresh_token(data={"sub": user.email})
     return {"access_token": access_token, "refresh_token": refresh_token, "token_type": "bearer"}
+
+
+@router.post("/request-password-reset", response_model=PasswordResetResponse)
+async def request_password_reset(
+    reset_request: PasswordResetRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Request password reset by email."""
+    # Get user from database
+    stmt = select(User).where(User.email == reset_request.email)
+    result = await db.execute(stmt)
+    user = result.scalar_one_or_none()
+
+    if not user:
+        # Return success even if user doesn't exist to prevent email enumeration
+        return PasswordResetResponse()
+
+    # Create reset token
+    reset_token = create_access_token(
+        data={"sub": user.email},
+        expires_delta=timedelta(minutes=60),  # 1 hour expiration
+    )
+
+    # Send reset email
+    await send_password_reset_email(
+        email=user.email,
+        reset_token=reset_token,
+    )
+
+    return PasswordResetResponse()
+
+
+@router.post("/reset-password", response_model=PasswordResetConfirmResponse)
+async def reset_password(
+    reset_data: PasswordReset,
+    db: AsyncSession = Depends(get_db),
+):
+    """Reset password using reset token."""
+    try:
+        # Verify reset token
+        payload = jwt.decode(
+            reset_data.token,
+            settings.SECRET_KEY,
+            algorithms=[settings.ALGORITHM],
+        )
+        email: str = payload.get("sub")
+        if email is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid reset token",
+            )
+
+        # Get user from database
+        stmt = select(User).where(User.email == email)
+        result = await db.execute(stmt)
+        user = result.scalar_one_or_none()
+
+        if user is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="User not found",
+            )
+
+        # Update password
+        user.hashed_password = get_password_hash(reset_data.new_password)
+        await db.commit()
+
+        return PasswordResetConfirmResponse()
+
+    except JWTError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired reset token",
+        )

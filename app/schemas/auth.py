@@ -9,7 +9,7 @@ class UserBase(BaseModel):
 
 
 class UserCreate(UserBase):
-    password: str = Field(..., min_length=6)
+    password: str = Field(min_length=6, max_length=100)
 
 
 class UserLogin(UserBase):
@@ -36,3 +36,25 @@ class Token(BaseModel):
 class TokenData(BaseModel):
     email: Optional[str] = None
     exp: Optional[datetime] = None
+
+
+class TokenPayload(BaseModel):
+    sub: str
+    exp: datetime
+
+
+class PasswordResetRequest(BaseModel):
+    email: EmailStr
+
+
+class PasswordReset(BaseModel):
+    token: str
+    new_password: str = Field(min_length=6, max_length=100)
+
+
+class PasswordResetResponse(BaseModel):
+    message: str = "Password reset email has been sent"
+
+
+class PasswordResetConfirmResponse(BaseModel):
+    message: str = "Password has been successfully reset"
