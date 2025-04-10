@@ -27,6 +27,7 @@ from app.core.database import get_db
 from app.core.email import send_verification_email, send_password_reset_email
 from app.models.user import User
 from app.schemas.auth import Token, UserCreate, UserResponse, PasswordReset, PasswordResetConfirmResponse, PasswordResetRequest, PasswordResetResponse
+from app.core.security import get_current_admin_user
 
 router = APIRouter()
 
@@ -38,7 +39,7 @@ async def register(user_data: UserCreate, db: AsyncSession = Depends(get_db)):
     """Register a new user.
     
     Args:
-        user_data (UserCreate): User registration data including email and password.
+        user_data (UserCreate): User registration data including email, password, and role.
         db (AsyncSession): Database session.
         
     Returns:
@@ -61,6 +62,7 @@ async def register(user_data: UserCreate, db: AsyncSession = Depends(get_db)):
         email=user_data.email,
         hashed_password=hashed_password,
         is_verified=True,  # Auto-verify in development
+        role=user_data.role,
     )
     db.add(db_user)
     await db.commit()
@@ -156,14 +158,14 @@ async def verify_email(token: str, db: AsyncSession = Depends(get_db)):
 @router.post("/avatar", response_model=UserResponse)
 async def update_avatar(
     file: UploadFile = File(...),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_admin_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Update user avatar.
+    """Update user avatar. Only admin users can update their avatar.
     
     Args:
         file (UploadFile): Avatar image file.
-        current_user (User): Current authenticated user.
+        current_user (User): Current authenticated admin user.
         db (AsyncSession): Database session.
         
     Returns:

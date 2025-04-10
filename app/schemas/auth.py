@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, ConfigDict
 
 
 class UserBase(BaseModel):
@@ -9,7 +9,8 @@ class UserBase(BaseModel):
 
 
 class UserCreate(UserBase):
-    password: str = Field(min_length=6, max_length=100)
+    password: str = Field(..., min_length=8)
+    role: str = Field(default="user", pattern="^(user|admin)$")
 
 
 class UserLogin(UserBase):
@@ -20,17 +21,17 @@ class UserResponse(UserBase):
     id: int
     is_active: bool
     is_verified: bool
-    avatar: Optional[str] = None
+    role: str
+    avatar: str | None
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class Token(BaseModel):
     access_token: str
     refresh_token: str
-    token_type: str = "bearer"
+    token_type: str
 
 
 class TokenData(BaseModel):
@@ -47,14 +48,14 @@ class PasswordResetRequest(BaseModel):
     email: EmailStr
 
 
+class PasswordResetResponse(BaseModel):
+    message: str = "Password reset email sent if the email exists"
+
+
 class PasswordReset(BaseModel):
     token: str
-    new_password: str = Field(min_length=6, max_length=100)
-
-
-class PasswordResetResponse(BaseModel):
-    message: str = "Password reset email has been sent"
+    new_password: str = Field(..., min_length=8)
 
 
 class PasswordResetConfirmResponse(BaseModel):
-    message: str = "Password has been successfully reset"
+    message: str = "Password has been reset successfully"
